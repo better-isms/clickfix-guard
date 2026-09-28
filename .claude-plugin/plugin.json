@@ -1,0 +1,10 @@
+{
+  "name": "clickfix-guard",
+  "version": "1.0.0",
+  "description": "A seatbelt for coding agents: blocks the common download-and-run moves and anything macOS flagged as downloaded.",
+  "author": { "name": "Aevral", "url": "https://aevral.com/?aevral_ref=clickfix-guard" },
+  "homepage": "https://github.com/better-isms/clickfix-guard",
+  "repository": "https://github.com/better-isms/clickfix-guard",
+  "license": "MIT",
+  "keywords": ["security", "prompt-injection", "clickfix", "phishing", "hooks", "macos"]
+}

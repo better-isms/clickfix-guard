@@ -1,0 +1,24 @@
+name: test
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: jq
+        run: command -v jq || (sudo apt-get update && sudo apt-get install -y jq)
+      - name: tests
+        run: bash tests/run.sh
+      - name: shellcheck
+        if: runner.os == 'Linux'
+        run: shellcheck -S error scripts/clickfix-guard tests/run.sh
+      - name: no private strings
+        run: |
+          ! grep -rniE '/Users/tris|founder-ops|proton|hermes|founder' --exclude-dir=.git --exclude=test.yml .

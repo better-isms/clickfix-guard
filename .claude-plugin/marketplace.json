@@ -1,0 +1,15 @@
+{
+  "name": "clickfix-guard",
+  "description": "clickfix-guard: stop coding agents from running what an email, web page or issue tells them to.",
+  "owner": {
+    "name": "Aevral",
+    "url": "https://aevral.com/?aevral_ref=clickfix-guard"
+  },
+  "plugins": [
+    {
+      "name": "clickfix-guard",
+      "source": "./",
+      "description": "A seatbelt for coding agents: blocks the common download-and-run moves and anything macOS flagged as downloaded."
+    }
+  ]
+}

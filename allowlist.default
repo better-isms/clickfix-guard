@@ -1,0 +1,12 @@
+# Official installers that are piped into a shell by design.
+# Format: host [path]. Exact https host. A path ending in / matches that
+# directory and below; any other path must match exactly. Add your own in
+# ~/.config/clickfix-guard/allow.txt (same format).
+#
+# An allowlisted command is never silently trusted: where the agent supports
+# it (Claude Code, Grok) the user is still asked to confirm. In CLICKFIX_GUARD=block
+# mode the allowlist is ignored.
+raw.githubusercontent.com /Homebrew/install/HEAD/install.sh
+sh.rustup.rs /
+raw.githubusercontent.com /nvm-sh/nvm/
+astral.sh /uv/
