@@ -159,7 +159,7 @@ canon() { # canonical path if the parent exists, else the expanded path
 }
 
 inode_of() {
-  stat -f %i "$1" 2>/dev/null || stat -c %i "$1" 2>/dev/null || true
+  stat -c %i "$1" 2>/dev/null || stat -f %i "$1" 2>/dev/null || true
 }
 
 url_base() { # basename of a URL path, query stripped

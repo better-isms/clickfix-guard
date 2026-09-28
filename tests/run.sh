@@ -190,7 +190,7 @@ d=$(decision "$(run block claude bypassPermissions s2 "bash $TMP/t.sh")"); check
 d=$(decision "$(run block claude bypassPermissions s3 "bash $TMP/t.sh")"); check ALLOW "${d:-ALLOW}" "other session unaffected"
 mv "$TMP/t.sh" "$TMP/renamed.sh"
 d=$(decision "$(run block claude bypassPermissions s2 "bash $TMP/renamed.sh")"); check DENY "$d" "rename keeps the inode, still denied"
-n=$((n+1)); perm=$(stat -f %Lp "$TMP/state/s2.paths" 2>/dev/null || stat -c %a "$TMP/state/s2.paths"); [ "$perm" = 600 ] || { echo "FAIL [state file is 0600, got $perm]"; fail=1; }
+n=$((n+1)); perm=$(stat -c %a "$TMP/state/s2.paths" 2>/dev/null || stat -f %Lp "$TMP/state/s2.paths"); [ "$perm" = 600 ] || { echo "FAIL [state file is 0600, got $perm]"; fail=1; }
 
 if [ "$(uname -s)" = Darwin ]; then
   echo "== macOS quarantine"
