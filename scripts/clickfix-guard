@@ -115,8 +115,31 @@ normalise() {
 
 N=$(normalise "$CMD")
 
+# Quoted text is data (a grep pattern, an echo, a commit message) unless it
+# is handed to something that executes it: sh -c, python -c, node -e,
+# osascript -e, eval. Command-position rules for installers, Gatekeeper and
+# AppleScript read this masked copy so a search for "installer -pkg" is not
+# mistaken for an install.
+MASKED=$(printf '%s\n' "$N" | awk '{
+  out = ""; i = 1; n = length($0)
+  while (i <= n) {
+    c = substr($0, i, 1)
+    if (c == "\"" || c == "\047") {
+      q = c; j = i + 1
+      while (j <= n && substr($0, j, 1) != q) { if (q == "\"" && substr($0, j, 1) == "\\") j++; j++ }
+      body = substr($0, i + 1, j - i - 1)
+      pre = out; sub(/[ \t]+$/, "", pre)
+      pw = ""; if (match(pre, /[^ \t]+$/)) pw = substr(pre, RSTART)
+      if (pw ~ /^(-[a-zA-Z]*[ce]|eval)$/) out = out q body q; else out = out q "_" q
+      i = j + 1; continue
+    }
+    out = out c; i++
+  }
+  print out
+}')
+
 # ------------------------------------------------------------- patterns
-SEP='[;&|`(]|\$\(|\bthen\b|\bdo\b|\belse\b'
+SEP='[;&|`]|(^|[^A-Za-z0-9_])\(|\$\(|\bthen\b|\bdo\b|\belse\b'
 POS="(^|${SEP})[[:space:]]*"
 DLC='\b(curl|wget|xh|dig|nslookup)\b'
 SHELLS='(ba|z|da|k|c|tc|fi|a)?sh'
@@ -136,6 +159,8 @@ END='[[:space:]]*([;&|)]|$)'
 
 m()  { printf '%s\n' "$N" | grep -qE -- "$1"; }
 mi() { printf '%s\n' "$N" | grep -qiE -- "$1"; }
+mm() { printf '%s\n' "$MASKED" | grep -qE -- "$1"; }
+mmi() { printf '%s\n' "$MASKED" | grep -qiE -- "$1"; }
 
 # ------------------------------------------------------------- helpers
 expand_path() { # expand ~ and $HOME, make absolute against CWD
@@ -316,23 +341,23 @@ if m "(^|${SEP}|[[:space:]])${LANGS}\b[^;&|]*[[:space:]]-[a-zA-Z]*[cerE][[:space
 fi
 
 # 2. Gatekeeper / quarantine bypass (macOS).
-m "${POS}xattr[[:space:]]+-[a-z]*[dc][a-z]*[[:space:]][^;&|]*com\.apple\.quarantine" && verdict "blocked removing the macOS quarantine flag."
-m "${POS}xattr[[:space:]]+-[a-z]*c[a-z]*[[:space:]]" && verdict "blocked clearing extended attributes (drops the quarantine flag)."
-m "${POS}spctl[[:space:]]+(--master-disable|--global-disable|--add|--disable)" && verdict "blocked changing Gatekeeper policy."
+mm "${POS}xattr[[:space:]]+-[a-z]*[dc][a-z]*[[:space:]][^;&|]*com\.apple\.quarantine" && verdict "blocked removing the macOS quarantine flag."
+mm "${POS}xattr[[:space:]]+-[a-z]*c[a-z]*[[:space:]]" && verdict "blocked clearing extended attributes (drops the quarantine flag)."
+mm "${POS}spctl[[:space:]]+(--master-disable|--global-disable|--add|--disable)" && verdict "blocked changing Gatekeeper policy."
 
 # 3. Installers and disk images.
-m "${POS}installer[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*-(pkg|package)\b" && verdict "blocked installing a package."
-m "${POS}hdiutil[[:space:]]+(attach|mount)\b" && verdict "blocked mounting a disk image."
-mi "${POS}open[[:space:]][^;&|]*\.(pkg|mpkg|dmg)([\"'[:space:];&|)]|$)" && verdict "blocked opening an installer or disk image."
-m "${POS}dpkg[[:space:]]+(-[a-zA-Z]*i\b|--install)" && verdict "blocked installing a local .deb package."
-m "${POS}apt(-get)?[[:space:]]+(-[^[:space:]]+[[:space:]]+)*(install|reinstall)[[:space:]][^;&|]*\.deb\b" && verdict "blocked installing a local .deb package."
-m "${POS}rpm[[:space:]]+-[a-zA-Z]*[iU]" && verdict "blocked installing a local .rpm package."
-m "${POS}(dnf|yum|zypper)[[:space:]]+install[[:space:]][^;&|]*\.rpm\b" && verdict "blocked installing a local .rpm package."
-m "${POS}snap[[:space:]]+install[[:space:]][^;&|]*--dangerous" && verdict "blocked installing an unsigned snap."
+mm "${POS}installer[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*-(pkg|package)\b" && verdict "blocked installing a package."
+mm "${POS}hdiutil[[:space:]]+(attach|mount)\b" && verdict "blocked mounting a disk image."
+mmi "${POS}open[[:space:]][^;&|]*\.(pkg|mpkg|dmg)([\"'[:space:];&|)]|$)" && verdict "blocked opening an installer or disk image."
+mm "${POS}dpkg[[:space:]]+(-[a-zA-Z]*i\b|--install)" && verdict "blocked installing a local .deb package."
+mm "${POS}apt(-get)?[[:space:]]+(-[^[:space:]]+[[:space:]]+)*(install|reinstall)[[:space:]][^;&|]*\.deb\b" && verdict "blocked installing a local .deb package."
+mm "${POS}rpm[[:space:]]+-[a-zA-Z]*[iU]" && verdict "blocked installing a local .rpm package."
+mm "${POS}(dnf|yum|zypper)[[:space:]]+install[[:space:]][^;&|]*\.rpm\b" && verdict "blocked installing a local .rpm package."
+mm "${POS}snap[[:space:]]+install[[:space:]][^;&|]*--dangerous" && verdict "blocked installing an unsigned snap."
 
 # 4. AppleScript shell escapes.
-m "${POS}osascript[[:space:]][^;&|]*do shell script" && verdict "blocked inline osascript 'do shell script'."
-m "${POS}osascript[[:space:]][^;&|]*-l[[:space:]]+JavaScript.*(doShellScript|\\\$\.system|ObjC\.import|NSTask)" && verdict "blocked inline JXA that runs shell commands."
+mm "${POS}osascript[[:space:]][^;&|]*do shell script" && verdict "blocked inline osascript 'do shell script'."
+mm "${POS}osascript[[:space:]][^;&|]*-l[[:space:]]+JavaScript.*(doShellScript|\\\$\.system|ObjC\.import|NSTask)" && verdict "blocked inline JXA that runs shell commands."
 
 # 5. Running anything from the Downloads folder.
 mi "${POS}(${INTERP}|source|\.)[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*${DL}" && verdict "blocked running a file from the Downloads folder."

@@ -14,6 +14,7 @@ clickfix-guard reads the command line. These get past it today. Each one is pinn
 | Scripts written by the agent | The agent writes `/tmp/x.sh` with its file tool, then runs it | The hook sees `bash /tmp/x.sh`, which is ordinary | Tracking file-tool writes (planned, opt-in) |
 | Downloads from an earlier session | `curl -o x` in one session, `bash x` in the next | The session tracker is per session | Longer-lived tracking |
 | Non-macOS "downloaded" flag | A browser download on Linux | Linux has no quarantine flag | Downloads-folder rules cover the common case |
+| Quoted paths with spaces, outside Downloads | `open "/tmp/Setup Tool.dmg"` | Quoted text is treated as data for the installer rules, so searches for these strings are not blocked | Quarantine still applies to browser downloads run by path; a shell parser would close it |
 | An agent that knows the rules | Anything creative | It is a seatbelt | A sandbox |
 
 ## Quarantine coverage (macOS)
