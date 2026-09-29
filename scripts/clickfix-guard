@@ -50,7 +50,8 @@ field() { # field <jq filter>
 
 raw_command() { # best-effort extraction without a JSON parser
   printf '%s' "$INPUT" | tr '\n' ' ' \
-    | sed -E 's/.*"(command|command_line)"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)".*/\2/' \
+    | grep -oE '"(command|command_line)"[[:space:]]*:[[:space:]]*"([^"\\]|\\.)*"' \
+    | sed -E 's/^"(command|command_line)"[[:space:]]*:[[:space:]]*"//; s/"$//' \
     | sed -e 's/\\n/\n/g' -e 's/\\"/"/g' -e 's/\\\\/\\/g'
 }
 
@@ -62,6 +63,10 @@ fi
 
 if [ "$HAVE_JQ" = 1 ]; then
   CMD=$(field '.tool_input.command // .toolInput.command // .command // .tool_info.command_line // (.toolArgs | if type == "string" then (fromjson? | .command) else .command end)')
+  if [ -z "$CMD" ] && [ "$PHASE" = "pre" ]; then
+    # Unknown event shape: check every string value rather than pass it.
+    CMD=$(printf '%s' "$INPUT" | jq -r '[.. | strings] | join("\n")' 2>/dev/null)
+  fi
   SESSION=$(field '.session_id // .sessionId')
   CWD=$(field '.cwd')
   PMODE=$(field '.permission_mode // .permissionMode')
@@ -209,6 +214,7 @@ mtime_of() {
 # planted link could redirect our writes (for example into a shell rc file).
 state_ok() {
   [ -d "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ] && [ -O "$STATE_DIR" ] || return 1
+  chmod 700 "$STATE_DIR" 2>/dev/null || return 1
   if [ -e "$STATE_FILE" ] || [ -L "$STATE_FILE" ]; then
     [ -f "$STATE_FILE" ] && [ ! -L "$STATE_FILE" ] && [ -O "$STATE_FILE" ] || return 1
   fi
@@ -285,7 +291,8 @@ if [ "$PHASE" = "post" ]; then
     # Record only files that exist and were written just now (a failed
     # download must not mark a pre-existing file). No tabs or newlines.
     [ -f "$c" ] && [ ! -L "$c" ] || continue
-    [ $(( now - $(mtime_of "$c") )) -le 600 ] || continue
+    age=$(( now - $(mtime_of "$c") ))
+    [ "$age" -ge 0 ] && [ "$age" -le 600 ] || continue
     case "$c" in *$'\t'*|*$'\n'*) continue ;; esac
     printf '%s\t%s\n' "$c" "$(inode_of "$c")" >> "$STATE_FILE" \
       || echo "clickfix-guard: could not write $STATE_FILE; download tracking is off" >&2
@@ -325,8 +332,12 @@ all_urls_allowlisted() {
   local urls u
   urls=$(printf '%s\n' "$CMD" | grep -oE "https?://[^[:space:]\"'|)]+")
   [ -z "$urls" ] && return 1
-  while IFS= read -r u; do allowlisted_url "$u" || return 1; done <<< "$urls"
-  return 0
+  # Fail closed: every URL must be checked and pass, and at least one must be.
+  # (No here-strings in this script: bash 3.2 needs a temp file for them and
+  # silently skips the loop when it cannot create one.)
+  local checked=0
+  for u in $urls; do allowlisted_url "$u" || return 1; checked=$((checked + 1)); done
+  [ "$checked" -gt 0 ]
 }
 
 # --------------------------------------------------------------- output
@@ -349,7 +360,10 @@ verdict() { # verdict <reason> [allowlistable]
   local reason="$1" allowable="${2:-}"
   if [ -n "$allowable" ] && [ "$MODE" != "block" ] && all_urls_allowlisted; then
     supports_ask && emit ask "$reason (allowlisted installer, confirm it is what the user asked for)."
-    exit 0
+    # No human to ask: only trust the exact URL, never a redirect it follows.
+    if ! printf '%s\n' "$CMD" | grep -qE -- '(^|[[:space:]])(-[a-zA-Z]*L[a-zA-Z]*|--location)([[:space:]]|$)'; then
+      exit 0
+    fi
   fi
   case "$MODE" in
     warn)
@@ -423,8 +437,8 @@ if [ -n "$TARGETS" ]; then
         if [ "$ct" = "$co" ] || [ "$(basename "$ct")" = "$(basename "$co")" -a "$(dirname "$(expand_path "$t")")" = "$CWD" -a "$(dirname "$(expand_path "$o")")" = "$CWD" ]; then
           verdict "blocked running a file this same command downloads."
         fi
-      done <<< "$OUTS"
-    done <<< "$TARGETS"
+      done < <(printf '%s\n' "$OUTS")
+    done < <(printf '%s\n' "$TARGETS")
   fi
   while IFS= read -r t; do
     ct=$(canon "$t")
@@ -440,7 +454,7 @@ if [ -n "$TARGETS" ]; then
         verdict "blocked running a file macOS flagged as downloaded (com.apple.quarantine)."
       fi
     fi
-  done <<< "$TARGETS"
+  done < <(printf '%s\n' "$TARGETS")
 fi
 
 exit 0
