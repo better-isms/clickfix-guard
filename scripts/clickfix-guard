@@ -334,7 +334,7 @@ allowlisted_url() {
 # not apply, so it can never switch off another rule.
 simple_installer() {
   local flags='(-[fsSL]+|--proto[[:space:]]+=?https|--tlsv1\.[23]|--fail|--silent|--show-error|--location)'
-  local url="https://[^[:space:]\"'|()\\\$\`;&<>]+"
+  local url="https://[^][{}*?[:space:]\"'|()\\\$\`;&<>]+"
   [ "$(printf '%s\n' "$N" | grep -c .)" -eq 1 ] || return 1
   printf '%s\n' "$N" | grep -qE -- "^[[:space:]]*curl([[:space:]]+${flags})*[[:space:]]+${url}([[:space:]]+${flags})*[[:space:]]*\|[[:space:]]*${SHELLS}([[:space:]]+-s)?[[:space:]]*$" && return 0
   printf '%s\n' "$N" | grep -qE -- "^[[:space:]]*${SHELLS}[[:space:]]+-c[[:space:]]+\"\\\$\([[:space:]]*curl([[:space:]]+${flags})*[[:space:]]+${url}[[:space:]]*\)\"[[:space:]]*$" && return 0
