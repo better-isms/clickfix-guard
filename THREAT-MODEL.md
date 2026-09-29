@@ -17,7 +17,7 @@ A PreToolUse hook that reads every shell command before it runs and refuses the 
 - The attacker does not know clickfix-guard is installed, or does not bother to evade it. Most injected instructions are copy-paste one-liners written for humans.
 - The agent does not rewrite the command to evade the guard after a block. In our smoke tests (Claude Code and Codex CLI) the agent stopped and reported the block; the block message tells it the user can run the command themselves. A determined agent could rephrase the command into one of the known bypasses.
 - The hook runs. If `jq` is missing or the event is not valid JSON, it degrades to raw matching and says so. Commands over 64 KB are refused, not checked, so a padded command cannot outrun the hook timeout (checking takes under a second at 64 KB). Harnesses that fail open on hook timeout (Grok, after 5 seconds by default) could still skip it on a badly overloaded machine.
-- The tracker's state lives in `~/.local/state/clickfix-guard/` (mode 700). If that directory or a state file is a symlink or not owned by you, tracking switches off with a warning rather than writing through it.
+- The tracker's state lives in `~/.local/state/clickfix-guard/` (mode 700). If that directory or a state file is a symlink or not owned by you, tracking switches off with a warning rather than writing through it. The check-then-append is not atomic; exploiting that needs write access to your own 0700 directory, which already means game over.
 
 ## What it does not cover
 

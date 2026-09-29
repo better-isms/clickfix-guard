@@ -328,6 +328,19 @@ allowlisted_url() {
   return 1
 }
 
+# The allowlist applies only to a command that is nothing but one official
+# installer one-liner: curl with plain flags and one https URL, piped into a
+# shell, or sh -c "$(curl ... URL)". Anything else on the line and it does
+# not apply, so it can never switch off another rule.
+simple_installer() {
+  local flags='(-[fsSL]+|--proto[[:space:]]+=?https|--tlsv1\.[23]|--fail|--silent|--show-error|--location)'
+  local url="https://[^[:space:]\"'|()\\\$\`;&<>]+"
+  [ "$(printf '%s\n' "$N" | grep -c .)" -eq 1 ] || return 1
+  printf '%s\n' "$N" | grep -qE -- "^[[:space:]]*curl([[:space:]]+${flags})*[[:space:]]+${url}([[:space:]]+${flags})*[[:space:]]*\|[[:space:]]*${SHELLS}([[:space:]]+-s)?[[:space:]]*$" && return 0
+  printf '%s\n' "$N" | grep -qE -- "^[[:space:]]*${SHELLS}[[:space:]]+-c[[:space:]]+\"\\\$\([[:space:]]*curl([[:space:]]+${flags})*[[:space:]]+${url}[[:space:]]*\)\"[[:space:]]*$" && return 0
+  return 1
+}
+
 all_urls_allowlisted() {
   local urls u
   urls=$(printf '%s\n' "$CMD" | grep -oE "https?://[^[:space:]\"'|)]+")
@@ -358,12 +371,10 @@ emit() { # emit <deny|ask> <reason>
 
 verdict() { # verdict <reason> [allowlistable]
   local reason="$1" allowable="${2:-}"
-  if [ -n "$allowable" ] && [ "$MODE" != "block" ] && all_urls_allowlisted; then
+  if [ -n "$allowable" ] && [ "$MODE" != "block" ] && simple_installer && all_urls_allowlisted; then
+    # The allowlist only ever turns a refusal into a question for a human.
+    # Where nobody can be asked, it changes nothing: refuse as usual.
     supports_ask && emit ask "$reason (allowlisted installer, confirm it is what the user asked for)."
-    # No human to ask: only trust the exact URL, never a redirect it follows.
-    if ! printf '%s\n' "$CMD" | grep -qE -- '(^|[[:space:]])(-[a-zA-Z]*L[a-zA-Z]*|--location)([[:space:]]|$)'; then
-      exit 0
-    fi
   fi
   case "$MODE" in
     warn)
@@ -384,7 +395,7 @@ verdict() { # verdict <reason> [allowlistable]
 [ "$TOO_BIG" = 1 ] && verdict "blocked a command too large to check (over 64 KB)."
 
 # 1. Remote content becomes the program.
-if m "${DLC}[^;&]*\|[[:space:]]*${SHELLS}([[:space:]]|${END})" && ! m "${DLC}[^;&]*\|[[:space:]]*${SHELLS}[[:space:]]+-c[[:space:]]"; then
+if m "${DLC}[^;&]*\|[[:space:]]*\(?[[:space:]]*${SHELLS}([[:space:]]|${END})" && ! m "${DLC}[^;&]*\|[[:space:]]*${SHELLS}[[:space:]]+-c[[:space:]]"; then
   verdict "blocked a download piped into a shell." allow
 fi
 m "${DLC}[^;&]*\|[[:space:]]*${LANGS}([[:space:]]+-)?${END}" && verdict "blocked a download piped into an interpreter as its program." allow

@@ -9,7 +9,7 @@ clickfix-guard reads the command line. These get past it today. Each one is pinn
 | Unusual stdin runners | `curl URL \| sh -c sh`, `\| xargs sh -c`, `\| awk '{system($0)}'` | Too many shapes to enumerate without false positives | More rules, case by case |
 | Clone then run | `git clone URL && cd x && ./install.sh` | Cloning and running a build script is normal developer work | Tracking cloned paths (planned, opt-in) |
 | Package managers | `npx pkg`, `pip install pkg`, `brew install tap/x` | Installing packages is normal work | A package allowlist or a sandbox |
-| Extract and run in one command | `unzip x.zip -d /tmp/x && /tmp/x/run.sh` | The files do not exist yet when the hook checks; a later command running them is caught if the zip was flagged | Tracking extracted paths (planned) |
+| Extract or copy, then run, in one command | `unzip x.zip -d /tmp/x && /tmp/x/run.sh`, `cp ~/Downloads/fix.sh /tmp/f.sh && bash /tmp/f.sh` | The files do not exist yet when the hook checks; a later command running them is caught if the zip was flagged | Tracking extracted paths (planned) |
 | Other downloaders | `aria2c URL -d /tmp && bash /tmp/x.sh` | Only curl, wget and xh are recognised | Add downloaders as they show up |
 | Scripts written by the agent | The agent writes `/tmp/x.sh` with its file tool, then runs it | The hook sees `bash /tmp/x.sh`, which is ordinary | Tracking file-tool writes (planned, opt-in) |
 | Downloads from an earlier session | `curl -o x` in one session, `bash x` in the next | The session tracker is per session | Longer-lived tracking |

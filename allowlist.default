@@ -4,9 +4,9 @@
 # must match exactly. Add your own in
 # ~/.config/clickfix-guard/allow.txt (same format).
 #
-# Where the agent can ask (Claude Code, Grok) an allowlisted command still asks
-# the user. Codex has no ask, so there it is allowed. CLICKFIX_GUARD=block
-# ignores the allowlist.
+# The allowlist only turns a refusal into a question for the user, so it only
+# matters where the agent can ask (Claude Code, Grok). Codex has no ask, so
+# there allowlisted commands are refused too. CLICKFIX_GUARD=block ignores it.
 #
 # Never add a directory prefix on raw.githubusercontent.com: it also serves
 # commits from forks by SHA, so only exact paths on a fixed ref are safe.

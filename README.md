@@ -18,7 +18,7 @@ ClickFix is the phishing trick where a page or an email tells you to "fix" somet
 
 Honest note: clickfix-guard would not have stopped that exact chain. The payload was fetched inside a script, into a variable, and a command-line check does not see that (see [KNOWN-BYPASSES.md](KNOWN-BYPASSES.md)). It stops the simpler and far more common moves: the pasted one-liner, the downloaded script, the installer, the quarantine strip.
 
-Your agent's own judgment is the only thing between an injected instruction and a shell, especially in bypass or auto mode. clickfix-guard adds a deterministic check in front of every shell command.
+In bypass or auto mode, your agent's own judgment is often the only thing between an injected instruction and a shell. clickfix-guard adds a deterministic check in front of every shell command. It adds roughly 150 to 200 ms per command.
 
 ## What it blocks
 
@@ -27,11 +27,13 @@ Your agent's own judgment is the only thing between an injected instruction and 
 | Download piped into a shell or interpreter | `curl ... \| bash`, `wget -qO- ... \| python3`, `bash <(curl ...)`, `eval "$(curl ...)"`, `sh -c "$(curl ...)"` |
 | Inline code that downloads and executes | `python3 -c "exec(urlopen(...).read())"`, `php -r "eval(file_get_contents('https://...'))"` |
 | Download, then run the same file | `curl -o /tmp/x.sh ... && bash /tmp/x.sh`, and later in the same session |
-| Anything macOS flagged as downloaded | a script saved from Safari or Mail, even after it was copied elsewhere (`com.apple.quarantine`) |
+| Anything macOS flagged as downloaded (macOS only) | a script saved from Safari or Mail, even after it was copied or unzipped elsewhere (`com.apple.quarantine`) |
 | Running files from the Downloads folder | `bash ~/Downloads/fix.sh`, `chmod +x ~/Downloads/x`, `open ~/Downloads/x.command` (localized folder names too) |
 | Gatekeeper bypass | `xattr -d com.apple.quarantine`, `xattr -c`, `spctl --master-disable` |
 | Installers and disk images | `installer -pkg`, `hdiutil attach`, `open x.dmg`, `dpkg -i`, `apt install ./x.deb`, `rpm -i` |
 | AppleScript shell escapes | `osascript -e 'do shell script ...'`, JXA `doShellScript` |
+
+On Linux every rule runs except the quarantine check, which is a macOS feature.
 
 What still works: `curl api | jq`, `curl api | python3 -c 'import json...'`, downloading files, reading and copying files in Downloads, opening PDFs and documents (even quarantined ones), running your own project scripts.
 
@@ -67,6 +69,12 @@ Grok reads the hooks in `~/.claude/settings.json` and can discover Claude plugin
 
 There is deliberately no `curl | bash` installer. Clone with git, read [`scripts/clickfix-guard`](scripts/clickfix-guard) (one bash file), and pin a tag. Needs `bash`, `jq`, `grep`, `sed`, `awk`. Without `jq` it falls back to matching the raw event and says so on stderr.
 
+### State and uninstall
+
+The session tracker writes the paths of files the agent downloaded to `~/.local/state/clickfix-guard/` (mode 700, pruned after 7 days). Nothing leaves your machine.
+
+Uninstall: `/plugin uninstall clickfix-guard@clickfix-guard` in Claude Code; remove the two hook entries from `~/.codex/hooks.json` or `~/.grok/hooks/clickfix-guard.json`; delete `~/.local/state/clickfix-guard/`.
+
 ## Supported agents
 
 | Agent | Status | Tested with |
@@ -91,14 +99,14 @@ Set `CLICKFIX_GUARD` in the agent's environment.
 
 ## Allowlist
 
-Official installers that are meant to be piped into a shell (Homebrew, rustup, uv) are in [`allowlist.default`](allowlist.default). Where the agent can ask, an allowlisted installer still asks you. Codex has no ask, so there it is allowed only when curl does not follow redirects (no `-L`), because a redirect could lead anywhere; the official Homebrew and uv one-liners use `-L`, so on Codex run those yourself. `CLICKFIX_GUARD=block` ignores the allowlist. Add your own in `~/.config/clickfix-guard/allow.txt`:
+Official installers that are meant to be piped into a shell (Homebrew, rustup, uv) are in [`allowlist.default`](allowlist.default). The allowlist never allows anything on its own: it turns a refusal into a question for you. So it only matters where the agent can ask (Claude Code, Grok). Codex has no ask, so there allowlisted installers are refused like everything else; run them yourself. `CLICKFIX_GUARD=block` ignores the allowlist. Add your own in `~/.config/clickfix-guard/allow.txt`:
 
 ```
 # host [path]  (exact https host; exact path, or a directory prefix ending in /)
 get.example.dev /install.sh
 ```
 
-URLs are parsed, not prefix-matched. A bare host or `/` means the root path only. Rejected: `https://raw.githubusercontent.com.evil.io/...`, `https://raw.githubusercontent.com@evil.io/...` and `http://` are rejected.
+URLs are parsed, not prefix-matched, and a bare host or `/` means the root path only. Lookalike hosts (`raw.githubusercontent.com.evil.io`), embedded credentials (`raw.githubusercontent.com@evil.io`) and plain `http://` never match. The allowlist applies only when the whole command is one installer one-liner (curl with plain flags and one URL, piped into a shell, or `sh -c "$(curl ...)"`); anything else on the line and the normal rules apply.
 
 ## What it is not
 
