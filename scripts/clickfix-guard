@@ -155,7 +155,7 @@ MASKED=$(printf '%s\n' "$N" | awk '{
     pw = ""; if (match(pre, /[^ \t]+$/)) pw = substr(pre, RSTART)
     # Kept: code handed to an interpreter, and double-quoted text that the
     # shell itself executes via $( ) or backticks.
-    if (pw ~ /^(-[a-zA-Z]*[cerE]|eval)$/ || (q == "\"" && body ~ /\$\(|`/)) out = out q body q; else out = out q "_" q
+    if (pw == "eval" || pre ~ /(^|[^A-Za-z0-9_.\/-])((ba|z|da|k|c|tc|fi|a)?sh|python[0-9.]*|perl|ruby|node|php|osascript|deno|bun|pwsh)([ \t][^;&|]*)?[ \t]+-[a-zA-Z]*[cerE]$/ || (q == "\"" && body ~ /\$\(|`/)) out = out q body q; else out = out q "_" q
   }
   print out rest
 }')
