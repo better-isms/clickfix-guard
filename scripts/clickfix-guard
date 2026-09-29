@@ -138,9 +138,9 @@ N=$(normalise "$CMD")
 
 # Quoted text is data (a grep pattern, an echo, a commit message) unless it
 # is handed to something that executes it: sh -c, python -c, node -e,
-# osascript -e, eval. Command-position rules for installers, Gatekeeper and
-# AppleScript read this masked copy so a search for "installer -pkg" is not
-# mistaken for an install.
+# osascript -e, eval, or $( ) inside double quotes. The download, installer,
+# Gatekeeper and AppleScript rules read this masked copy, so a commit message
+# or a search pattern that mentions these commands is not mistaken for one.
 MASKED=$(printf '%s\n' "$N" | awk '{
   out = ""; rest = $0
   while (match(rest, /["\047]/)) {
@@ -153,7 +153,9 @@ MASKED=$(printf '%s\n' "$N" | awk '{
     }
     pre = out; sub(/[ \t]+$/, "", pre)
     pw = ""; if (match(pre, /[^ \t]+$/)) pw = substr(pre, RSTART)
-    if (pw ~ /^(-[a-zA-Z]*[ce]|eval)$/) out = out q body q; else out = out q "_" q
+    # Kept: code handed to an interpreter, and double-quoted text that the
+    # shell itself executes via $( ) or backticks.
+    if (pw ~ /^(-[a-zA-Z]*[cerE]|eval)$/ || (q == "\"" && body ~ /\$\(|`/)) out = out q body q; else out = out q "_" q
   }
   print out rest
 }')
@@ -174,7 +176,7 @@ if command -v xdg-user-dir >/dev/null 2>&1; then
   fi
 fi
 RUNNABLE_EXT='(command|tool|sh|bash|zsh|py|rb|pl|js|mjs|php|app|pkg|mpkg|dmg|terminal|workflow|scpt|applescript|jar|html?|svg|webloc|inetloc|fileloc|shortcut|appimage|deb|rpm|run|bin|desktop)'
-END='[[:space:]]*([;&|)]|$)'
+END='[[:space:]]*([;&|)"'"'"']|$)'
 
 m()  { printf '%s\n' "$N" | grep -qE -- "$1"; }
 mi() { printf '%s\n' "$N" | grep -qiE -- "$1"; }
@@ -395,18 +397,18 @@ verdict() { # verdict <reason> [allowlistable]
 [ "$TOO_BIG" = 1 ] && verdict "blocked a command too large to check (over 64 KB)."
 
 # 1. Remote content becomes the program.
-if m "${DLC}[^;&]*\|[[:space:]]*\(?[[:space:]]*${SHELLS}([[:space:]]|${END})" && ! m "${DLC}[^;&]*\|[[:space:]]*${SHELLS}[[:space:]]+-c[[:space:]]"; then
+if mm "${DLC}[^;&]*\|[[:space:]]*\(?[[:space:]]*${SHELLS}([[:space:]]|${END})" && ! mm "${DLC}[^;&]*\|[[:space:]]*${SHELLS}[[:space:]]+-c[[:space:]]"; then
   verdict "blocked a download piped into a shell." allow
 fi
-m "${DLC}[^;&]*\|[[:space:]]*${LANGS}([[:space:]]+-)?${END}" && verdict "blocked a download piped into an interpreter as its program." allow
-m "${DLC}[^;&]*\|[[:space:]]*${LANGS}[[:space:]]+-[a-zA-Z]*[ce][[:space:]].*(exec|eval)[[:space:]]*\(.*stdin" && verdict "blocked a download piped into code that executes stdin." allow
-m "(${INTERP}|source|\.)[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*<?[[:space:]]*<\([[:space:]]*${DLC}" && verdict "blocked a download fed to an interpreter via process substitution." allow
-m "(${INTERP})[[:space:]]+-c[[:space:]]+[\"']?(\\\$\(|\`)[[:space:]]*${DLC}" && verdict "blocked sh -c \"\$(curl ...)\"." allow
-m "${POS}eval[[:space:]]+[\"']?(\\\$\(|\`)[[:space:]]*${DLC}" && verdict "blocked eval of downloaded content." allow
-m "(${INTERP})[^;&|]*<<<[[:space:]]*[\"']?(\\\$\(|\`)[[:space:]]*${DLC}" && verdict "blocked a download fed to an interpreter as a here-string." allow
-if m "(^|${SEP}|[[:space:]])${LANGS}\b[^;&|]*[[:space:]]-[a-zA-Z]*[cerE][[:space:]]" \
-  && m "(urlopen|urllib|requests\.get|fetch\(|https?\.get|open-uri|URI\.open|Net::HTTP|LWP::|file_get_contents\([^)]*https?:|curl_exec)" \
-  && m "(exec\(|eval[[:space:](]|Function\(|system\(|popen|child_process|subprocess|os\.system|execSync|spawn\()"; then
+mm "${DLC}[^;&]*\|[[:space:]]*${LANGS}([[:space:]]+-)?${END}" && verdict "blocked a download piped into an interpreter as its program." allow
+mm "${DLC}[^;&]*\|[[:space:]]*${LANGS}[[:space:]]+-[a-zA-Z]*[ce][[:space:]].*(exec|eval)[[:space:]]*\(.*stdin" && verdict "blocked a download piped into code that executes stdin." allow
+mm "(${INTERP}|source|\.)[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*<?[[:space:]]*<\([[:space:]]*${DLC}" && verdict "blocked a download fed to an interpreter via process substitution." allow
+mm "(${INTERP})[[:space:]]+-c[[:space:]]+[\"']?(\\\$\(|\`)[[:space:]]*${DLC}" && verdict "blocked sh -c \"\$(curl ...)\"." allow
+mm "${POS}eval[[:space:]]+[\"']?(\\\$\(|\`)[[:space:]]*${DLC}" && verdict "blocked eval of downloaded content." allow
+mm "(${INTERP})[^;&|]*<<<[[:space:]]*[\"']?(\\\$\(|\`)[[:space:]]*${DLC}" && verdict "blocked a download fed to an interpreter as a here-string." allow
+if mm "(^|${SEP}|[[:space:]])${LANGS}\b[^;&|]*[[:space:]]-[a-zA-Z]*[cerE][[:space:]]" \
+  && mm "(urlopen|urllib|requests\.get|fetch\(|https?\.get|open-uri|URI\.open|Net::HTTP|LWP::|file_get_contents\([^)]*https?:|curl_exec)" \
+  && mm "(exec\(|eval[[:space:](]|Function\(|system\(|popen|child_process|subprocess|os\.system|execSync|spawn\()"; then
   verdict "blocked inline code that downloads and executes." allow
 fi
 
