@@ -4,7 +4,7 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/clickfix-guard\" --harness claude", "timeout": 10 }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/clickfix-guard\" --harness claude", "timeout": 30 }
         ]
       }
     ],
@@ -12,7 +12,7 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/clickfix-guard\" --harness claude --post", "timeout": 10 }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/clickfix-guard\" --harness claude --post", "timeout": 30 }
         ]
       }
     ]

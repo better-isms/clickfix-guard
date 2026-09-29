@@ -36,7 +36,9 @@ done
 MODE="${CLICKFIX_GUARD:-auto}"
 [ "$MODE" = "off" ] && exit 0
 
+umask 077
 INPUT=$(cat)
+MAX_BYTES=65536
 
 # ---------------------------------------------------------------- input
 HAVE_JQ=1
@@ -46,8 +48,20 @@ field() { # field <jq filter>
   printf '%s' "$INPUT" | jq -r "$1 // empty" 2>/dev/null
 }
 
+raw_command() { # best-effort extraction without a JSON parser
+  printf '%s' "$INPUT" | tr '\n' ' ' \
+    | sed -E 's/.*"(command|command_line)"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)".*/\2/' \
+    | sed -e 's/\\n/\n/g' -e 's/\\"/"/g' -e 's/\\\\/\\/g'
+}
+
+if [ "$HAVE_JQ" = 1 ] && ! printf '%s' "$INPUT" | jq -e . >/dev/null 2>&1; then
+  # Malformed event: never exit quietly on something that may be a command.
+  echo "clickfix-guard: could not parse the hook event as JSON, matching raw text" >&2
+  HAVE_JQ=0
+fi
+
 if [ "$HAVE_JQ" = 1 ]; then
-  CMD=$(field '.tool_input.command // .toolInput.command')
+  CMD=$(field '.tool_input.command // .toolInput.command // .command // .tool_info.command_line // (.toolArgs | if type == "string" then (fromjson? | .command) else .command end)')
   SESSION=$(field '.session_id // .sessionId')
   CWD=$(field '.cwd')
   PMODE=$(field '.permission_mode // .permissionMode')
@@ -56,10 +70,10 @@ if [ "$HAVE_JQ" = 1 ]; then
   fi
 else
   # Degraded mode: no jq. Match on the raw event text, loudly.
-  echo "clickfix-guard: jq not found, matching raw event text (install jq for full coverage)" >&2
-  CMD=$(printf '%s' "$INPUT" | tr '\n' ' ' \
-    | sed -E 's/.*"command"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)".*/\1/' \
-    | sed -e 's/\\n/\n/g' -e 's/\\"/"/g' -e 's/\\\\/\\/g')
+  command -v jq >/dev/null 2>&1 || echo "clickfix-guard: jq not found, matching raw event text (install jq for full coverage)" >&2
+  CMD=$(raw_command)
+  # Nothing recognisable: fall back to the whole event text.
+  [ -z "$CMD" ] && CMD="$INPUT"
   SESSION=""; CWD=""; PMODE=""
   [ "$HARNESS" = "auto" ] && HARNESS="claude"
 fi
@@ -113,6 +127,8 @@ normalise() {
     -e 's#(^|[[:space:];&|`(])/(usr/local/|opt/homebrew/|usr/|snap/|run/current-system/sw/|nix/store/[^/[:space:]]+/)?s?bin/#\1#g'
 }
 
+TOO_BIG=0
+if [ "${#CMD}" -gt "$MAX_BYTES" ] && [ "$PHASE" = "pre" ]; then TOO_BIG=1; CMD=""; fi
 N=$(normalise "$CMD")
 
 # Quoted text is data (a grep pattern, an echo, a commit message) unless it
@@ -121,23 +137,21 @@ N=$(normalise "$CMD")
 # AppleScript read this masked copy so a search for "installer -pkg" is not
 # mistaken for an install.
 MASKED=$(printf '%s\n' "$N" | awk '{
-  out = ""; i = 1; n = length($0)
-  while (i <= n) {
-    c = substr($0, i, 1)
-    if (c == "\"" || c == "\047") {
-      q = c; j = i + 1
-      while (j <= n && substr($0, j, 1) != q) { if (q == "\"" && substr($0, j, 1) == "\\") j++; j++ }
-      body = substr($0, i + 1, j - i - 1)
-      pre = out; sub(/[ \t]+$/, "", pre)
-      pw = ""; if (match(pre, /[^ \t]+$/)) pw = substr(pre, RSTART)
-      if (pw ~ /^(-[a-zA-Z]*[ce]|eval)$/) out = out q body q; else out = out q "_" q
-      i = j + 1; continue
+  out = ""; rest = $0
+  while (match(rest, /["\047]/)) {
+    out = out substr(rest, 1, RSTART - 1); q = substr(rest, RSTART, 1); rest = substr(rest, RSTART + 1)
+    body = ""
+    if (q == "\047") {
+      if (match(rest, /\047/)) { body = substr(rest, 1, RSTART - 1); rest = substr(rest, RSTART + 1) } else { body = rest; rest = "" }
+    } else {
+      if (match(rest, /^([^"\\]|\\.)*"/)) { body = substr(rest, 1, RLENGTH - 1); rest = substr(rest, RLENGTH + 1) } else { body = rest; rest = "" }
     }
-    out = out c; i++
+    pre = out; sub(/[ \t]+$/, "", pre)
+    pw = ""; if (match(pre, /[^ \t]+$/)) pw = substr(pre, RSTART)
+    if (pw ~ /^(-[a-zA-Z]*[ce]|eval)$/) out = out q body q; else out = out q "_" q
   }
-  print out
+  print out rest
 }')
-
 # ------------------------------------------------------------- patterns
 SEP='[;&|`]|(^|[^A-Za-z0-9_])\(|\$\(|\bthen\b|\bdo\b|\belse\b'
 POS="(^|${SEP})[[:space:]]*"
@@ -183,8 +197,22 @@ canon() { # canonical path if the parent exists, else the expanded path
   printf '%s/%s' "$d" "$b"
 }
 
-inode_of() {
-  stat -c %i "$1" 2>/dev/null || stat -f %i "$1" 2>/dev/null || true
+inode_of() { # device:inode, so a match never crosses filesystems
+  stat -c '%d:%i' "$1" 2>/dev/null || stat -f '%d:%i' "$1" 2>/dev/null || true
+}
+
+mtime_of() {
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0
+}
+
+# The state directory and file must be ours and must not be symlinks, or a
+# planted link could redirect our writes (for example into a shell rc file).
+state_ok() {
+  [ -d "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ] && [ -O "$STATE_DIR" ] || return 1
+  if [ -e "$STATE_FILE" ] || [ -L "$STATE_FILE" ]; then
+    [ -f "$STATE_FILE" ] && [ ! -L "$STATE_FILE" ] && [ -O "$STATE_FILE" ] || return 1
+  fi
+  return 0
 }
 
 url_base() { # basename of a URL path, query stripped
@@ -228,6 +256,10 @@ run_targets() {
   printf '%s\n' "$N" | grep -oE "${POS}(${INTERP}|source|\.)([[:space:]]+-[a-zA-Z-]+)*[[:space:]]+${pathy}" \
     | grep -vE "[[:space:]]-[a-zA-Z]*[cemr]([[:space:]]+[^[:space:]]+)?$" \
     | awk '{print $NF}' | grep -E '/|\.(sh|bash|zsh|py|rb|pl|js|mjs|php|command|tool)$' || true
+  # quoted paths (may contain spaces): bash "/tmp/Setup Tool.sh", "./x y"
+  printf '%s\n' "$N" | grep -oE "${POS}(${INTERP}|source|\.)([[:space:]]+-[a-zA-Z-]+)*[[:space:]]+(\"[^\"]+\"|'[^']+')" \
+    | grep -vE "[[:space:]]-[a-zA-Z]*[cemr][[:space:]]" | sed -E "s/.*[[:space:]][\"']//; s/[\"']\$//" || true
+  printf '%s\n' "$N" | grep -oE "${POS}(\"(\./|~/|/)[^\"]+\"|'(\./|~/|/)[^']+')" | sed -E "s/^[^\"']*[\"']//; s/[\"']\$//" || true
   # shell reading its program from a file: bash < x
   printf '%s\n' "$N" | grep -oE "${POS}${SHELLS}[[:space:]]*<[[:space:]]*${pathy}" | sed -E 's/.*<[[:space:]]*//' || true
   # a path in command position: ./x, ~/x, /abs/x
@@ -241,13 +273,23 @@ run_targets() {
 if [ "$PHASE" = "post" ]; then
   outs=$(download_outputs)
   [ -z "$outs" ] && exit 0
-  mkdir -p "$STATE_DIR" 2>/dev/null && chmod 700 "$STATE_DIR" 2>/dev/null
-  find "$STATE_DIR" -name '*.paths' -mtime +7 -delete 2>/dev/null
+  [ -L "$STATE_DIR" ] || mkdir -p "$STATE_DIR" 2>/dev/null
+  if ! state_ok; then
+    echo "clickfix-guard: state path $STATE_DIR is not a private directory owned by you; download tracking is off" >&2
+    exit 0
+  fi
+  find "$STATE_DIR" -maxdepth 1 -type f -name '*.paths' -mtime +7 -delete 2>/dev/null
+  now=$(date +%s)
   printf '%s\n' "$outs" | while IFS= read -r o; do
     c=$(canon "$o")
-    printf '%s\t%s\n' "$c" "$(inode_of "$c")" >> "$STATE_FILE"
+    # Record only files that exist and were written just now (a failed
+    # download must not mark a pre-existing file). No tabs or newlines.
+    [ -f "$c" ] && [ ! -L "$c" ] || continue
+    [ $(( now - $(mtime_of "$c") )) -le 600 ] || continue
+    case "$c" in *$'\t'*|*$'\n'*) continue ;; esac
+    printf '%s\t%s\n' "$c" "$(inode_of "$c")" >> "$STATE_FILE" \
+      || echo "clickfix-guard: could not write $STATE_FILE; download tracking is off" >&2
   done
-  chmod 600 "$STATE_FILE" 2>/dev/null
   exit 0
 fi
 
@@ -271,8 +313,9 @@ allowlisted_url() {
       case "$h" in ''|\#*) continue ;; esac
       [ "$host" = "$(printf '%s' "$h" | tr 'A-Z' 'a-z')" ] || continue
       p="${p:-/}"
-      if [ "$p" = "/" ] || [ "$path" = "$p" ]; then return 0; fi
-      case "$p" in */) case "$path" in "$p"*) return 0 ;; esac ;; esac
+      # Exact path, or a directory prefix ending in / (never the root).
+      if [ "$path" = "$p" ]; then return 0; fi
+      if [ "$p" != "/" ]; then case "$p" in */) case "$path" in "$p"*) return 0 ;; esac ;; esac; fi
     done < "$f"
   done
   return 1
@@ -324,6 +367,8 @@ verdict() { # verdict <reason> [allowlistable]
 }
 
 # ---------------------------------------------------------------- rules
+[ "$TOO_BIG" = 1 ] && verdict "blocked a command too large to check (over 64 KB)."
+
 # 1. Remote content becomes the program.
 if m "${DLC}[^;&]*\|[[:space:]]*${SHELLS}([[:space:]]|${END})" && ! m "${DLC}[^;&]*\|[[:space:]]*${SHELLS}[[:space:]]+-c[[:space:]]"; then
   verdict "blocked a download piped into a shell." allow
@@ -364,7 +409,7 @@ mi "${POS}(${INTERP}|source|\.)[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*${DL}" && ve
 mi "${POS}${DL}([^[:space:]]*\.${RUNNABLE_EXT}|[^.[:space:]]+)${END}" && verdict "blocked running a file from the Downloads folder."
 mi "${POS}chmod[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*([ugoa]*\+[rwX]*x|[0-7]?[0-7]?[1357][0-7]{0,2})[[:space:]][^;&|]*${DL}" && verdict "blocked making a downloaded file executable."
 mi "${POS}(open|xdg-open|gio[[:space:]]+open)[[:space:]][^;&|]*${DL}[^;&|]*\.${RUNNABLE_EXT}([\"'[:space:];&|)]|$)" && verdict "blocked launching a downloaded file."
-mi "${POS}cd[[:space:]]+${DL%/}/?[\"']?[^;&|]*(&&|;|\|\|).*(^|[;&|[:space:]])(\./|(${INTERP})[[:space:]]+[^-[:space:]])" && verdict "blocked running a file inside the Downloads folder."
+mi "${POS}cd[[:space:]]+${DL%/}/?[\"']?[^;&|]*[;&|]+[[:space:]]*(.*[;&|][[:space:]]*)?(\./|(${INTERP})[[:space:]]+[^-[:space:]])" && verdict "blocked running a file inside the Downloads folder."
 
 # 6. Download then run the same file, in this command or later in the session.
 TARGETS=$(run_targets | sort -u)
@@ -384,7 +429,7 @@ if [ -n "$TARGETS" ]; then
   while IFS= read -r t; do
     ct=$(canon "$t")
     [ -e "$ct" ] || continue
-    if [ -r "$STATE_FILE" ]; then
+    if state_ok && [ -r "$STATE_FILE" ]; then
       ino=$(inode_of "$ct")
       if cut -f1 "$STATE_FILE" | grep -qxF -- "$ct" || { [ -n "$ino" ] && cut -f2 "$STATE_FILE" | grep -qxF -- "$ino"; }; then
         verdict "blocked running a file the agent downloaded earlier in this session."

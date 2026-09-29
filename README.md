@@ -59,7 +59,7 @@ Clone the repo somewhere stable, then add to `~/.codex/hooks.json`:
 
 Then run `/hooks` in Codex once and trust the two hooks. Codex skips hooks you have not trusted.
 
-### Grok Build
+### Grok Build (experimental)
 
 Grok reads the hooks in `~/.claude/settings.json`, but not Claude plugins. Put the same JSON as above in `~/.grok/hooks/clickfix-guard.json`, with `--harness grok`.
 
@@ -73,7 +73,7 @@ There is deliberately no `curl | bash` installer. Clone with git, read [`scripts
 |---|---|---|
 | Claude Code | supported, blocks and asks | 2.1.284, real CLI |
 | Codex CLI | supported, blocks (Codex has no "ask") | 0.153.2, real CLI |
-| Grok Build | supported, blocks and asks | contract fixtures; live CLI test pending |
+| Grok Build | experimental: contract-tested, live CLI test pending | fixtures for its `toolInput` event shape |
 | Gemini CLI, Cursor, Copilot CLI | coming in v1.1 | |
 | OpenCode, Amp, Cline | not yet | open an issue |
 
@@ -91,14 +91,14 @@ Set `CLICKFIX_GUARD` in the agent's environment.
 
 ## Allowlist
 
-Official installers that are meant to be piped into a shell (Homebrew, rustup, nvm, uv) are in [`allowlist.default`](allowlist.default). They are never silently trusted: where the agent can ask, it asks; on Codex they are allowed. Add your own in `~/.config/clickfix-guard/allow.txt`:
+Official installers that are meant to be piped into a shell (Homebrew, rustup, uv) are in [`allowlist.default`](allowlist.default). Where the agent can ask, an allowlisted installer still asks you. Codex has no ask, so there it is allowed. `CLICKFIX_GUARD=block` ignores the allowlist. Add your own in `~/.config/clickfix-guard/allow.txt`:
 
 ```
-# host [path]  (exact https host; a path ending in / covers that directory)
+# host [path]  (exact https host; exact path, or a directory prefix ending in /)
 get.example.dev /install.sh
 ```
 
-URLs are parsed, not prefix-matched: `https://raw.githubusercontent.com.evil.io/...`, `https://raw.githubusercontent.com@evil.io/...` and `http://` are rejected.
+URLs are parsed, not prefix-matched. A bare host or `/` means the root path only. Rejected: `https://raw.githubusercontent.com.evil.io/...`, `https://raw.githubusercontent.com@evil.io/...` and `http://` are rejected.
 
 ## What it is not
 
@@ -108,7 +108,7 @@ URLs are parsed, not prefix-matched: `https://raw.githubusercontent.com.evil.io/
 
 ## False positives
 
-Benchmark: replayed against the unique shell commands from two weeks of real agent sessions on one developer's Mac. See [THREAT-MODEL.md](THREAT-MODEL.md#false-positive-benchmark) for the numbers. If it blocks something legitimate, open an issue with the command (redacted), and use `warn` or the allowlist meanwhile.
+Benchmark: replayed against the unique shell commands from two weeks of real agent sessions on one developer's Mac. See [THREAT-MODEL.md](THREAT-MODEL.md#false-positive-benchmark) for the numbers. Known false positives: inline code that merely mentions both a download call and an exec call (for example `python3 -c "print('urlopen exec(')"`), and commands over 64 KB, which are refused rather than checked. If it blocks something legitimate, open an issue with the command (redacted), and use `warn` or the allowlist meanwhile.
 
 ## Development
 

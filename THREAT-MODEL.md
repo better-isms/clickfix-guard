@@ -16,7 +16,8 @@ A PreToolUse hook that reads every shell command before it runs and refuses the 
 
 - The attacker does not know clickfix-guard is installed, or does not bother to evade it. Most injected instructions are copy-paste one-liners written for humans.
 - The agent does not rewrite the command to evade the guard after a block. In our smoke tests (Claude Code and Codex CLI) the agent stopped and reported the block; the block message tells it the user can run the command themselves. A determined agent could rephrase the command into one of the known bypasses.
-- The hook runs. If `jq` is missing it degrades to raw matching and says so; if the agent harness fails open on hook timeout (Grok does, after 5 seconds by default) a very slow machine could skip it.
+- The hook runs. If `jq` is missing or the event is not valid JSON, it degrades to raw matching and says so. Commands over 64 KB are refused, not checked, so a padded command cannot outrun the hook timeout (checking takes under a second at 64 KB). Harnesses that fail open on hook timeout (Grok, after 5 seconds by default) could still skip it on a badly overloaded machine.
+- The tracker's state lives in `~/.local/state/clickfix-guard/` (mode 700). If that directory or a state file is a symlink or not owned by you, tracking switches off with a warning rather than writing through it.
 
 ## What it does not cover
 
@@ -34,4 +35,12 @@ See [KNOWN-BYPASSES.md](KNOWN-BYPASSES.md). In short: variables, encoded payload
 
 ## False-positive benchmark
 
-BENCHMARK_PLACEHOLDER
+Method: every unique shell command an agent ran in two weeks of real, heavy daily use on one developer's Mac (Claude Code sessions: email triage, coding, releases, audits), replayed through the guard in `block` mode, the strictest setting. Commands are not published; only the counts.
+
+| | Commands | Refused | Legitimate commands refused |
+|---|---|---|---|
+| clickfix-guard 1.0 | 32,385 | 2 | 1 (a 111 KB heredoc writing a file, refused as too large to check) |
+
+The other refusal was a deliberate test that ran a script from Downloads. For comparison, the private prototype this grew from refused 6 legitimate commands on the same set, mostly searches whose pattern contained installer or pipe-to-shell text; quoted text is now treated as data unless it is handed to `sh -c`, `-e` or `eval`.
+
+The workload contains no real attacks, so this measures false positives only. Detection is covered by the test suite and KNOWN-BYPASSES.md.
