@@ -57,9 +57,9 @@ Clone the repo somewhere stable, then add to `~/.codex/hooks.json`:
 
 Then run `/hooks` in Codex once and trust the two hooks. Codex skips hooks you have not trusted.
 
-### Grok Build (experimental)
+### Grok Build
 
-Grok reads the hooks in `~/.claude/settings.json` and can discover Claude plugins; neither path is live-tested yet. The explicit route: put the same JSON as above in `~/.grok/hooks/clickfix-guard.json`, with `--harness grok`.
+Put the same JSON as above in `~/.grok/hooks/clickfix-guard.json`, with `--harness grok`. Hooks in `~/.grok/hooks/` are always trusted, so there is no trust step. Check with `grok inspect`: it lists two `matcher=Bash` hooks. Grok also reads the hooks in `~/.claude/settings.json` and can discover Claude plugins; those routes are not live-tested, the explicit file is.
 
 ### Verify, don't pipe
 
@@ -77,7 +77,7 @@ Uninstall: `/plugin uninstall clickfix-guard@clickfix-guard` in Claude Code; rem
 |---|---|---|
 | Claude Code | supported, blocks and asks | 2.1.284, real CLI |
 | Codex CLI | supported, blocks (Codex has no "ask") | 0.153.2, real CLI |
-| Grok Build | experimental: contract-tested, live CLI test pending | fixtures for its `toolInput` event shape |
+| Grok Build | supported, blocks | 1.0.46, real CLI (`~/.grok/hooks/` route) |
 | Gemini CLI, Cursor, Copilot CLI | coming in v1.1 | |
 | OpenCode, Amp, Cline | not yet | open an issue |
 
