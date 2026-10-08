@@ -356,7 +356,14 @@ all_urls_allowlisted() {
 }
 
 # --------------------------------------------------------------- output
-supports_ask() { [ "$HARNESS" = "claude" ] || [ "$HARNESS" = "grok" ]; }
+# Claude Code shows a hook "ask" to the human even in bypass mode. Grok
+# auto-approves it under always-approve (live test, grok 1.0.46), so Grok
+# can only ask in the modes that prompt.
+supports_ask() {
+  [ "$HARNESS" = "claude" ] && return 0
+  [ "$HARNESS" = "grok" ] && case "$PMODE" in default|acceptEdits|plan) return 0 ;; esac
+  return 1
+}
 
 emit() { # emit <deny|ask> <reason>
   local decision="$1" reason

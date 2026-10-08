@@ -57,9 +57,9 @@ Clone the repo somewhere stable, then add to `~/.codex/hooks.json`:
 
 Then run `/hooks` in Codex once and trust the two hooks. Codex skips hooks you have not trusted.
 
-### Grok Build (experimental)
+### Grok Build
 
-Grok reads the hooks in `~/.claude/settings.json` and can discover Claude plugins; neither path is live-tested yet. The explicit route: put the same JSON as above in `~/.grok/hooks/clickfix-guard.json`, with `--harness grok`.
+Put the same JSON as above in `~/.grok/hooks/clickfix-guard.json`, with `--harness grok`. Hooks in `~/.grok/hooks/` are always trusted, so there is no trust step. Check with `grok inspect`: it lists two `matcher=Bash` hooks. Grok also reads the hooks in `~/.claude/settings.json` and can discover Claude plugins; those routes are not live-tested, the explicit file is.
 
 ### Verify, don't pipe
 
@@ -77,7 +77,7 @@ Uninstall: `/plugin uninstall clickfix-guard@clickfix-guard` in Claude Code; rem
 |---|---|---|
 | Claude Code | supported, blocks and asks | 2.1.284, real CLI |
 | Codex CLI | supported, blocks (Codex has no "ask") | 0.153.2, real CLI |
-| Grok Build | experimental: contract-tested, live CLI test pending | fixtures for its `toolInput` event shape |
+| Grok Build | supported, blocks (asks only for allowlisted installers, in prompting modes) | 1.0.46, real CLI (`~/.grok/hooks/` route) |
 | Gemini CLI, Cursor, Copilot CLI | coming in v1.1 | |
 | OpenCode, Amp, Cline | not yet | open an issue |
 
@@ -89,13 +89,13 @@ Set `CLICKFIX_GUARD` in the agent's environment.
 |---|---|
 | `auto` (default) | Claude Code in interactive modes (`default`, `acceptEdits`, `plan`): asks you. Bypass mode, auto mode, unknown modes and agents without "ask": blocks. |
 | `block` | Always blocks. Ignores the allowlist. For unattended agents that read untrusted input. |
-| `ask` | Asks where the agent supports it, blocks elsewhere. |
+| `ask` | Asks where the agent supports it (Claude Code; Grok in prompting modes), blocks elsewhere. |
 | `warn` | Allows, prints a warning. |
 | `off` | Does nothing. |
 
 ## Allowlist
 
-Official installers that are meant to be piped into a shell (Homebrew, rustup, uv) are in [`allowlist.default`](allowlist.default). The allowlist never allows anything on its own: it turns a refusal into a question for you. So it only matters where the agent can ask (Claude Code, Grok). Codex has no ask, so there allowlisted installers are refused like everything else; run them yourself. `CLICKFIX_GUARD=block` ignores the allowlist. Add your own in `~/.config/clickfix-guard/allow.txt`:
+Official installers that are meant to be piped into a shell (Homebrew, rustup, uv) are in [`allowlist.default`](allowlist.default). The allowlist never allows anything on its own: it turns a refusal into a question for you. So it only matters where the agent can ask: Claude Code, and Grok in its prompting modes (`default`, `acceptEdits`, `plan`). Grok approves an "ask" by itself under always-approve, and Codex has no ask, so there allowlisted installers are refused like everything else; run them yourself. `CLICKFIX_GUARD=block` ignores the allowlist. Add your own in `~/.config/clickfix-guard/allow.txt`:
 
 ```
 # host [path]  (exact https host; exact path, or a directory prefix ending in /)
